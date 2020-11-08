@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import reins.service.KeyValueService;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class RedisKVServiceImpl implements KeyValueService {
@@ -38,6 +39,16 @@ public class RedisKVServiceImpl implements KeyValueService {
     @Override
     public void put(String key, Object value) {
         put(key, JSON.toJSONString(value));
+    }
+
+    @Override
+    public void put(String key, String value, int timeOut, TimeUnit tu) {
+        redisTemplate.opsForValue().set(key, value, timeOut, tu);
+    }
+
+    @Override
+    public void put(String key, Object value, int timeOut, TimeUnit tu) {
+        put(key, JSON.toJSONString(value), timeOut, tu);
     }
 
     @Override

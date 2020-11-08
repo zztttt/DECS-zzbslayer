@@ -5,7 +5,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
-import reins.domain.FakeFile;
+import reins.domain.FileMeta;
 import reins.service.ReadWriteService;
 
 @Controller
@@ -22,7 +22,7 @@ public class ReadWriteController {
 
     @GetMapping("/write")
     @ResponseBody
-    public String write(FakeFile file){
+    public String write(FileMeta file){
         return readWriteService.write(file);
     }
 }

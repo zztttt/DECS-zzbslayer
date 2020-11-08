@@ -18,6 +18,8 @@ public class GlobalVar {
     @Value("${decs.disk.max}")
     public int DISK_MAX;
 
+    @Value("${decs.predict.script.path}")
+    public String SCRIPT_PATH;
 
     @Bean("GlobalVar")
     public void setNODE_ID(){

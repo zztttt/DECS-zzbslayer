@@ -1,19 +1,25 @@
 package reins.service.impl;
 
 
+import com.alibaba.fastjson.JSON;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reins.config.GlobalVar;
 import reins.domain.AccessRecord;
-import reins.domain.FakeFile;
+import reins.domain.FileMeta;
 import reins.domain.Node;
 import reins.service.MetaDataService;
 import reins.service.ReadWriteService;
 import reins.service.TradeOffService;
+import reins.utils.KeyUtil;
+import reins.utils.TimeUtil;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
+@Slf4j
 @Service
 public class ReadWriteServiceImpl implements ReadWriteService {
 
@@ -28,9 +34,19 @@ public class ReadWriteServiceImpl implements ReadWriteService {
 
     @Override
     public String read(String fileName) {
+        if (fileName.contains("_")){
+            throw new RuntimeException("File name contains illegal charactor \"_\"");
+        }
+
         Node targetNode;
         if (!selfContainsFile(fileName)){
-            targetNode = tradeOffService.pickNodeToRead(fileName);
+            Optional<String> forwardNode = metaDataService.getForwardRule(fileName, globalVar.NODE_ID);
+            if (forwardNode.isPresent()){
+                targetNode = metaDataService.getNodeByName(forwardNode.get())
+                        .orElseThrow(() -> new RuntimeException(String.format("Node %s doesn't exist", globalVar.NODE_ID)));
+            }
+            else
+                targetNode = tradeOffService.pickNodeToRead(fileName);
         }
         else
             targetNode = metaDataService.getNodeByName(globalVar.NODE_ID)
@@ -40,17 +56,26 @@ public class ReadWriteServiceImpl implements ReadWriteService {
         return targetNode.getId();
     }
 
+    /**
+     * 挑选剩余空间更多的节点写入
+     * @param file
+     * @return
+     */
     @Override
-    public String write(FakeFile file) {
+    public String write(FileMeta file) {
+        if (file.getFileName().contains("_")){
+            throw new RuntimeException("File name contains illegal charactor \"_\"");
+        }
         Node targetNode = tradeOffService.pickNodeToWrite(file);
         _writeToNode(targetNode, file);
         return targetNode.getId();
     }
 
     private boolean selfContainsFile(String fileName){
-        List<FakeFile> files = metaDataService.getFilesByNode(globalVar.NODE_ID)
+        List<FileMeta> files = metaDataService.getFilesByNode(globalVar.NODE_ID)
                 .orElse(new ArrayList<>());
-        for (FakeFile file: files){
+        log.info(JSON.toJSONString(files));
+        for (FileMeta file: files){
             if (file.getFileName().equals(fileName))
                 return true;
         }
@@ -59,9 +84,11 @@ public class ReadWriteServiceImpl implements ReadWriteService {
 
 
 
-    private void _writeToNode(Node node, FakeFile file){
+    @Override
+    public void _writeToNode(Node node, FileMeta file){
+        log.info("Writing file {} to node {}", JSON.toJSONString(file), JSON.toJSONString(node));
         String fileName = file.getFileName();
-        String nodeName = node.getId();
+        String nodeId = node.getId();
         /*
          * 更新 Redis 中
          *      1. 节点名 -> 节点磁盘占用的 meta data
@@ -69,42 +96,79 @@ public class ReadWriteServiceImpl implements ReadWriteService {
          *      3. 文件名_storage -> 文件所在节点的列表
          */
         // 1
-        Node newNode = metaDataService.getNodeByName(nodeName)
-                .orElseThrow(() -> new RuntimeException(String.format("Node %s doesn't exist", nodeName)));
+        Node newNode = metaDataService.getNodeByName(nodeId)
+                .orElseThrow(() -> new RuntimeException(String.format("Node %s doesn't exist", nodeId)));
         newNode.getDiskMeta().saveFile(file);
         metaDataService.updateNode(newNode);
 
 
         // 2
-        List<FakeFile> fileList = metaDataService.getFilesByNode(nodeName)
+        List<FileMeta> fileList = metaDataService.getFilesByNode(nodeId)
                 .orElse(new ArrayList<>());
-        fileList.add(file);
-        metaDataService.setFilesByNode(nodeName, fileList);
+        if (!fileList.contains(file)) // replica 的情况，不需要更新全体文件的列表
+            fileList.add(file);
+        metaDataService.setFilesByNode(nodeId, fileList);
 
         // 3
-//        if (keyValueService.exists(fileName)){
-//            /*
-//             * TODO: 更新文件
-//             * 但是一旦有 replica 就要同时去更新 replica
-//             * 暂时不考虑更新文件的情况
-//             */
-//            return -1;
-//        }
-
-        List<String> nodeList = new ArrayList<>(1);
-        nodeList.add(nodeName);
+        // 可能是个 replica
+        List<String> nodeList = metaDataService.getNodesByFile(fileName)
+            .orElse(new ArrayList<>(1));
+        nodeList.add(nodeId);
         metaDataService.setNodesByFile(fileName, nodeList);
 
+        List<FileMeta> allFiles = metaDataService.getAllFiles().orElse(new ArrayList<>());
+        allFiles.add(file);
+        metaDataService.setAllFiles(allFiles);
     }
 
+    /**
+     * _writeToNode 的逆操作
+     */
+    @Override
+    public void _removeFromNode(Node node, FileMeta file) {
+        log.info("Removing file {} from node {}", JSON.toJSONString(file), JSON.toJSONString(node));
+        String nodeId = node.getId();
+        String fileName = file.getFileName();
+
+        Node newNode = metaDataService.getNodeByName(nodeId)
+                .orElseThrow(() -> new RuntimeException(String.format("Node %s doesn't exist", nodeId)));
+        newNode.getDiskMeta().removeFile(file);
+        metaDataService.updateNode(newNode);
 
 
-    private int _readFromNode(Node node, String fileName){
-        String nodeName = node.getId();
-        String key = fileName + "_" + nodeName;
-        Long currentHour = System.currentTimeMillis() / 1000 / (60 * 60);
+        List<String> nodeList = metaDataService.getNodesByFile(fileName)
+                .get();
+        nodeList.remove(nodeId);
+        metaDataService.setNodesByFile(file.getFileName(), nodeList);
 
-        List<AccessRecord> records = metaDataService.getAccessRecordsByFileAndByNode(fileName, nodeName)
+        List<FileMeta> fileList = metaDataService.getFilesByNode(nodeId)
+                .orElse(new ArrayList<>());
+        fileList.remove(file);
+        metaDataService.setFilesByNode(nodeId, fileList);
+
+
+        // 如果这是唯一一个持有数据的节点
+        if (nodeList.size() == 1){
+            List<FileMeta> allFiles = metaDataService.getAllFiles().orElse(new ArrayList<>());
+            allFiles.remove(file);
+            metaDataService.setAllFiles(allFiles);
+        }
+    }
+
+    /**
+     * 从当前节点读取位于 node 的某文件
+     * 需要更新当前节点访问该文件的访问记录
+     * @param node
+     * @param fileName
+     * @return
+     */
+    @Override
+    public int _readFromNode(Node node, String fileName){
+        log.info("Reading file {} at node {} from node {}", fileName, node.getId(), globalVar.NODE_ID);
+        String nodeId = globalVar.NODE_ID;
+        Long currentHour = TimeUtil.getCurrentAbsoluteHour();
+
+        List<AccessRecord> records = metaDataService.getAccessRecordsByFileAndByNode(fileName, nodeId)
                 .orElse(new ArrayList<>());
         int recordSize = records.size();
 
@@ -127,7 +191,16 @@ public class ReadWriteServiceImpl implements ReadWriteService {
             }
         }
 
-        metaDataService.setAccessRecordByFileAndByNode(fileName, nodeName, records);
+        // file1_node1 -> [ (hour=1, accessAmount=1), ...]
+        metaDataService.setAccessRecordByFileAndByNode(fileName, nodeId, records);
+        // file1_storage -> [ node1, ...]
+        if (recordSize == 0){
+            List<String> nodeNames = metaDataService.getAccessRecordIndexByFile(fileName)
+                    .orElse(new ArrayList<>());
+            nodeNames.add(nodeId);
+            metaDataService.setAccessRecordIndexByFile(fileName, nodeNames);
+        }
+
         return 0;
     }
 }

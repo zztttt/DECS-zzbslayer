@@ -1,23 +1,24 @@
 package reins.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.GetMapping;
+import reins.config.DecsAlgConfig;
 import reins.config.GlobalVar;
 import reins.domain.AccessRecord;
 import reins.domain.DiskMeta;
-import reins.domain.FakeFile;
+import reins.domain.FileMeta;
 import reins.domain.Node;
 import reins.service.KeyValueService;
 import reins.service.MetaDataService;
+import reins.utils.KeyUtil;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 @DependsOn("GlobalVar")
 @Service
@@ -27,6 +28,9 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
 
     @Autowired
     GlobalVar globalVar;
+
+    @Autowired
+    DecsAlgConfig decsAlgConfig;
 
     @Autowired
     DiscoveryClient discoveryClient;
@@ -63,12 +67,7 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
 
     @Override
     public Optional<Node> getNodeByName(String nodeId) {
-        Node res;
-        if (!keyValueService.exists(nodeId))
-            res = null;
-        else
-            res = keyValueService.get(nodeId, Node.class);
-        return Optional.ofNullable(res);
+        return getOptional(nodeId, Node.class);
     }
 
     @Override
@@ -77,55 +76,128 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
     }
 
     @Override
-    public Optional<List<FakeFile>> getFilesByNode(String nodeId) {
-        List<FakeFile> res;
+    public Optional<List<FileMeta>> getFilesByNode(String nodeId) {
+        List<FileMeta> res;
 
-        String storageKey = nodeId + "_storage";
-        if (!keyValueService.exists(storageKey))
-            res = null;
-        else
-            res = keyValueService.getList(storageKey, FakeFile.class);
-        return Optional.ofNullable(res);
+        String storageKey = KeyUtil.generateKey(nodeId, "storage");
+        return getOptionalList(storageKey, FileMeta.class);
     }
 
     @Override
-    public void setFilesByNode(String nodeName, List<FakeFile> files){
-        String storageKey = nodeName + "_storage";
+    public void setFilesByNode(String nodeId, List<FileMeta> files){
+        String storageKey = KeyUtil.generateKey(nodeId, "storage");
         keyValueService.put(storageKey, files);
     }
 
     @Override
     public Optional<List<String>> getNodesByFile(String fileName) {
         List<String> res;
-        String storageKey = fileName + "_storage";
-        if (!keyValueService.exists(storageKey))
-            res = null;
-        else
-            res = keyValueService.getList(storageKey, String.class);
-        return Optional.ofNullable(res);
+        String storageKey = KeyUtil.generateKey(fileName, "storage");
+        return getOptionalList(storageKey, String.class);
     }
 
     @Override
     public void setNodesByFile(String fileName, List<String> nodeIds) {
-        String storageKey = fileName + "_storage";
+        String storageKey = KeyUtil.generateKey(fileName, "storage");
         keyValueService.put(storageKey, nodeIds);
     }
 
     @Override
     public Optional<List<AccessRecord>> getAccessRecordsByFileAndByNode(String fileName, String nodeId) {
         List<AccessRecord> res;
-        String recordKey = fileName + "_" + nodeId;
-        if (!keyValueService.exists(recordKey))
-            res = null;
-        else
-            res = keyValueService.getList(recordKey, AccessRecord.class);
-        return Optional.ofNullable(res);
+        String recordKey = KeyUtil.generateKey(fileName, nodeId);
+        return getOptionalList(recordKey, AccessRecord.class);
     }
 
     @Override
     public void setAccessRecordByFileAndByNode(String fileName, String nodeId, List<AccessRecord> records) {
         String recordKey = fileName + "_" + nodeId;
         keyValueService.put(recordKey, records);
+    }
+
+    @Override
+    public Optional<List<String>> getAccessRecordIndexByFile(String fileName) {
+        String indexKey = KeyUtil.generateKey(fileName, "acIndex");
+        return getOptionalList(indexKey, String.class);
+    }
+
+    @Override
+    public void setAccessRecordIndexByFile(String fileName, List<String> nodeNames) {
+        String indexKey = KeyUtil.generateKey(fileName, "acIndex");
+        keyValueService.put(indexKey, nodeNames);
+    }
+
+    @Override
+    public Optional<List<FileMeta>> getAllFiles() {
+        String key = KeyUtil.generateInternalKey("allFiles");
+        return getOptionalList(key, FileMeta.class);
+    }
+
+    @Override
+    public void setAllFiles(List<FileMeta> files) {
+        String key = KeyUtil.generateInternalKey("allFiles");
+        keyValueService.put(key, files);
+    }
+
+    @Override
+    public Optional<String> getForwardRule(String fileName, String nodeId) {
+        return Optional.empty();
+    }
+
+    @Override
+    public void setForwardRule(String fileName, String srcNode, String dstNode) {
+        keyValueService.put(
+                KeyUtil.generateInternalKey(fileName, srcNode, "forwardRule"),
+                dstNode,
+                decsAlgConfig.TIME_WINDOW, TimeUnit.MINUTES
+        );
+    }
+
+    @Override
+    public Optional<Map<String, Map<String, Double>>> getPredictionResultByHour(long hour) {
+        String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(hour));
+        Map<String, Map<String, Double>> res;
+        if (key == null || !keyValueService.exists(key))
+            res = null;
+        else
+            // JSON parsed Object can be converted to map directly
+            res = (Map<String, Map<String, Double>>)JSON.parse(keyValueService.get(key));
+        return Optional.ofNullable(res);
+    }
+
+    @Override
+    public void setPredictionResultByHour(long hour, Map<String, Map<String, Double>> predictionResult) {
+        String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(hour));
+        keyValueService.put(Long.toString(hour)
+                , predictionResult
+                , decsAlgConfig.TIME_WINDOW, TimeUnit.MINUTES);
+    }
+
+    private <T> Optional<T> getOptional(String key, Class<T> clazz){
+        if (key == null || !keyValueService.exists(key)){
+            return Optional.empty();
+        }
+        else
+            return Optional.of(keyValueService.get(key, clazz));
+    }
+
+    private <T> Optional<List<T>> getOptionalList(String key, Class<T> clazz){
+        if (key == null || !keyValueService.exists(key)){
+            return Optional.empty();
+        }
+        else
+            return Optional.of(keyValueService.getList(key, clazz));
+    }
+
+    public static void main(String[] args){
+        Map<String, Map<String, Double>> test = new HashMap<>();
+        Map<String, Double> item = new HashMap<>();
+        item.put("test", 1.0);
+        test.put("test", item);
+        String json = JSON.toJSONString(test);
+        System.out.println(json);
+        Map<String, Map<String, Double>> revert = (Map) JSON.parse(json);
+        System.out.println(revert.get("test").get("test"));
     }
 }
 
