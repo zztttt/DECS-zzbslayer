@@ -46,4 +46,11 @@ public class TestController {
         schedulerService.replicaScheduler();
         return 0;
     }
+
+    @GetMapping("/adaptive")
+    @ResponseBody
+    public int adaptive(@RequestParam("percentage") double percentage){
+        schedulerService._adaptiveScheduler(percentage);
+        return 0;
+    }
 }

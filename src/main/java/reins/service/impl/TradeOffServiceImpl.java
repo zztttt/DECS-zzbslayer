@@ -12,8 +12,11 @@ import reins.domain.Node;
 import reins.service.MetaDataService;
 import reins.service.PopularityService;
 import reins.service.TradeOffService;
+import reins.utils.TimeUtil;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 @Service
 public class TradeOffServiceImpl implements TradeOffService {
@@ -80,54 +83,21 @@ public class TradeOffServiceImpl implements TradeOffService {
     }
 
     private double calculateReadScore(String nodeId, String fileName){
-        double p = popularityService.calculatePopularityByFileAndByNodeForNextHour(fileName, nodeId);
+        long now = TimeUtil.getCurrentAbsoluteHour();
+        Optional<Map<String, Map<String, Double>>> optionalResult = metaDataService.getPredictionResultByHour(now);
+
+        double p;
+        if (optionalResult.isPresent() &&
+            optionalResult.get().containsKey(fileName) &&
+            optionalResult.get().get(fileName).containsKey(nodeId)){
+            p = optionalResult.get().get(fileName).get(nodeId);
+        }
+        else
+            p = popularityService.calculatePopularityByFileAndByNodeForHour(fileName, nodeId, now);
+
         double score = decsAlgConfig.ALPHA * (1 - p)
                 / decsAlgConfig.BETA * (1 + decsAlgConfig.TI / decsAlgConfig.TC);
         return score;
     }
 
-    /**
-     * 以下部分均为 replica 策略
-     * replica 策略：
-     *  计算 replica，migrate，
-     */
-
-    // 计算当前节点备份某文件的分数
-    private double calculateReplicaScore(String nodeId, String fileName){
-        Node node = metaDataService.getNodeByName(nodeId)
-                .orElseThrow(() -> new RuntimeException(String.format("Node %s doesn't exist", nodeId)));
-        // 1st replica score
-        double r = node.getDiskMeta().getFreeSpaceRatio();
-        // 有该文件访问记录的节点
-        List<String> nodeNames = metaDataService.getAccessRecordIndexByFile(fileName).get();
-        // 持有该文件的节点
-        List<String> nodeNamesWithData = metaDataService.getNodesByFile(fileName).get();
-        double sum = 0;
-        // 没有数据的节点中，预测访问量最高的节点为 pj
-        double pj = 0;
-        // 有数据的节点中，预测访问量最高的节点为 pi
-        double pi = 0;
-
-        double maxJ = Double.MIN_VALUE;
-        double maxI = Double.MIN_VALUE;
-        for (String curNode: nodeNames){
-            double p = popularityService.calculatePopularityByFileAndByNodeForNextHour(fileName, nodeId);
-            sum += p;
-            if (nodeNamesWithData.contains(curNode)){
-                if (p > pi){
-                    pi = p;
-                }
-            }
-            else {
-                if (p > pj){
-                    pj = p;
-                }
-            }
-        }
-        double pjStar = pj / sum;
-        double score = (decsAlgConfig.ALPHA * r + decsAlgConfig.BETA * pjStar)
-                / ((pi + pj + 1) * decsAlgConfig.TC + decsAlgConfig.TI)
-                    * decsAlgConfig.GAMMA * Math.pow(Math.E, nodeNames.size());
-        return score;
-    }
 }

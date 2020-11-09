@@ -5,9 +5,8 @@ import reins.domain.AccessRecord;
 import java.util.List;
 
 public interface PopularityService {
-    double calculatePopularityByFileAndByNodeForNextHour(String fileName, String nodeId);
+    double calculatePopularityByFileAndByNodeForHour(String fileName, String nodeId, long hour);
 
     double calculatePopularityForHour(List<AccessRecord> records, long hour);
 
-    double calculatePopularityForNextHour(List<AccessRecord> records);
 }

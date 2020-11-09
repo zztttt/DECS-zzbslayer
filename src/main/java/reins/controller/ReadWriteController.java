@@ -2,11 +2,11 @@ package reins.controller;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.*;
 import reins.domain.FileMeta;
 import reins.service.ReadWriteService;
+
+import java.util.List;
 
 @Controller
 public class ReadWriteController {
@@ -24,5 +24,23 @@ public class ReadWriteController {
     @ResponseBody
     public String write(FileMeta file){
         return readWriteService.write(file);
+    }
+
+    @PostMapping("/write-batch")
+    @ResponseBody
+    public int writeBatch(@RequestBody List<FileMeta> fileMetas){
+        for (FileMeta fileMeta: fileMetas){
+            readWriteService.write(fileMeta);
+        }
+        return 0;
+    }
+
+    @GetMapping("/read-batch")
+    @ResponseBody
+    public int readBatch(@RequestBody List<String> fileNames){
+        for (String fileName: fileNames){
+            readWriteService.read(fileName);
+        }
+        return 0;
     }
 }

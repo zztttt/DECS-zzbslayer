@@ -3,6 +3,7 @@ package reins.service;
 import reins.domain.AccessRecord;
 import reins.domain.FileMeta;
 import reins.domain.Node;
+import reins.domain.PCF;
 
 import java.util.List;
 import java.util.Map;
@@ -42,4 +43,8 @@ public interface MetaDataService {
     Optional<Map<String, Map<String, Double>>> getPredictionResultByHour(long hour);
 
     void setPredictionResultByHour(long hour, Map<String, Map<String, Double>> predictionResult);
+
+    Optional<PCF> getPCFByFileAndByNode(String fileName, String nodeId);
+
+    void setPCFByFileAndByNode(String fileName, String nodeId, PCF pcf);
 }

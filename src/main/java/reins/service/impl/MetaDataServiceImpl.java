@@ -9,10 +9,7 @@ import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 import reins.config.DecsAlgConfig;
 import reins.config.GlobalVar;
-import reins.domain.AccessRecord;
-import reins.domain.DiskMeta;
-import reins.domain.FileMeta;
-import reins.domain.Node;
+import reins.domain.*;
 import reins.service.KeyValueService;
 import reins.service.MetaDataService;
 import reins.utils.KeyUtil;
@@ -77,8 +74,6 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
 
     @Override
     public Optional<List<FileMeta>> getFilesByNode(String nodeId) {
-        List<FileMeta> res;
-
         String storageKey = KeyUtil.generateKey(nodeId, "storage");
         return getOptionalList(storageKey, FileMeta.class);
     }
@@ -91,7 +86,6 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
 
     @Override
     public Optional<List<String>> getNodesByFile(String fileName) {
-        List<String> res;
         String storageKey = KeyUtil.generateKey(fileName, "storage");
         return getOptionalList(storageKey, String.class);
     }
@@ -104,7 +98,6 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
 
     @Override
     public Optional<List<AccessRecord>> getAccessRecordsByFileAndByNode(String fileName, String nodeId) {
-        List<AccessRecord> res;
         String recordKey = KeyUtil.generateKey(fileName, nodeId);
         return getOptionalList(recordKey, AccessRecord.class);
     }
@@ -146,9 +139,8 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
 
     @Override
     public void setForwardRule(String fileName, String srcNode, String dstNode) {
-        keyValueService.put(
-                KeyUtil.generateInternalKey(fileName, srcNode, "forwardRule"),
-                dstNode,
+        String key = KeyUtil.generateInternalKey(fileName, srcNode, "forwardRule");
+        keyValueService.put(key, dstNode,
                 decsAlgConfig.TIME_WINDOW, TimeUnit.MINUTES
         );
     }
@@ -157,7 +149,7 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
     public Optional<Map<String, Map<String, Double>>> getPredictionResultByHour(long hour) {
         String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(hour));
         Map<String, Map<String, Double>> res;
-        if (key == null || !keyValueService.exists(key))
+        if (!keyValueService.exists(key))
             res = null;
         else
             // JSON parsed Object can be converted to map directly
@@ -168,9 +160,20 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
     @Override
     public void setPredictionResultByHour(long hour, Map<String, Map<String, Double>> predictionResult) {
         String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(hour));
-        keyValueService.put(Long.toString(hour)
-                , predictionResult
+        keyValueService.put(key, predictionResult
                 , decsAlgConfig.TIME_WINDOW, TimeUnit.MINUTES);
+    }
+
+    @Override
+    public Optional<PCF> getPCFByFileAndByNode(String fileName, String nodeId) {
+        String key = KeyUtil.generateInternalKey(fileName, nodeId, "PCF");
+        return getOptional(key, PCF.class);
+    }
+
+    @Override
+    public void setPCFByFileAndByNode(String fileName, String nodeId, PCF pcfs) {
+        String key = KeyUtil.generateInternalKey(fileName, nodeId, "PCF");
+        keyValueService.put(key, pcfs);
     }
 
     private <T> Optional<T> getOptional(String key, Class<T> clazz){

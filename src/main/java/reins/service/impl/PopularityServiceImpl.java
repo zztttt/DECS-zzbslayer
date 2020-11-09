@@ -44,7 +44,7 @@ public class PopularityServiceImpl implements PopularityService {
     }
 
     @Override
-    public double calculatePopularityByFileAndByNodeForNextHour(String fileName, String nodeId) {
+    public double calculatePopularityByFileAndByNodeForHour(String fileName, String nodeId, long hour) {
 //        String key = KeyUtil.generateInternalKey(fileName, nodeId, "popularity");
 //        // buffer in redis
 //        if (keyValueService.exists(key)){
@@ -52,18 +52,13 @@ public class PopularityServiceImpl implements PopularityService {
 //        }
         log.info("=============Start=============");
         log.info("Calculating popularity for file {} and nodeId {} at hour {}",
-                fileName, nodeId, TimeUtil.getCurrentAbsoluteHour() + 1);
+                fileName, nodeId, hour);
         List<AccessRecord> records = metaDataService.getAccessRecordsByFileAndByNode(fileName, nodeId)
                 .orElse(new ArrayList<>());
-        double res = calculatePopularityForNextHour(records);
+        double res = calculatePopularityForHour(records, hour);
         //keyValueService.put(key, res);
         log.info("==============end==============\n");
         return res;
-    }
-
-    @Override
-    public double calculatePopularityForNextHour(List<AccessRecord> records) {
-        return calculatePopularityForHour(records, TimeUtil.getCurrentAbsoluteHour() + 1);
     }
 
     private List<AccessRecord> rawRecordsToDataSet(List<AccessRecord> rawRecords, long hour){

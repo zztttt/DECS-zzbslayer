@@ -5,18 +5,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import reins.config.AdaptiveAlgConfig;
 import reins.config.DecsAlgConfig;
 import reins.config.GlobalVar;
 import reins.domain.AccessRecord;
 import reins.domain.FileMeta;
 import reins.domain.Node;
+import reins.domain.PCF;
 import reins.service.MetaDataService;
 import reins.service.PopularityService;
 import reins.service.ReadWriteService;
 import reins.utils.TimeUtil;
 
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -27,6 +28,9 @@ public class SchedulerServiceImpl {
 
     @Autowired
     DecsAlgConfig decsAlgConfig;
+
+    @Autowired
+    AdaptiveAlgConfig adaptiveAlgConfig;
 
     @Autowired
     MetaDataService metaDataService;
@@ -55,7 +59,8 @@ public class SchedulerServiceImpl {
             }
             else {
                 for (String nodeId: nodes){
-                    double p = popularityService.calculatePopularityByFileAndByNodeForNextHour(fileName, nodeId);
+                    double p = popularityService.calculatePopularityByFileAndByNodeForHour(fileName, nodeId,
+                            TimeUtil.getCurrentAbsoluteHour() + 1);
                     middleResult.put(nodeId, p);
                 }
             }
@@ -76,12 +81,23 @@ public class SchedulerServiceImpl {
         adjustReplicaNumber(predictionResult);
     }
 
-    @Scheduled(cron = "${decs.scheduler.adaptive}")
-    public void adaptiveScheduler(){
+    @Scheduled(cron = "${decs.scheduler.adaptive1}")
+    public void adaptiveScheduler1() {
+        _adaptiveScheduler(1.0/3);
+    }
+
+    @Scheduled(cron = "${decs.scheduler.adaptive2}")
+    public void adaptiveScheduler2() {
+        _adaptiveScheduler(2.0/3);
+    }
+
+
+    public void _adaptiveScheduler(double percentage){
         Optional<Map<String, Map<String, Double>>> optionalPredictionResult = metaDataService.getPredictionResultByHour(TimeUtil.getCurrentAbsoluteHour());
         if (!optionalPredictionResult.isPresent())
             return;
         Map<String, Map<String, Double>> predictionResult = optionalPredictionResult.get();
+
         for (Map.Entry<String, Map<String, Double>> filePrediction: predictionResult.entrySet()){
             log.info("=============Start=============");
             String fileName = filePrediction.getKey();
@@ -94,13 +110,57 @@ public class SchedulerServiceImpl {
                         .orElse(new ArrayList<>());
                 Optional<AccessRecord> accessAmountForCurrentHour = records.stream().filter(r -> r.getHour() == TimeUtil.getCurrentAbsoluteHour())
                         .findFirst();
+                /**
+                 * TODO：目前实现是 hard code 的
+                 * 目前设置的是一小时一次 LSTM
+                 * 中间每20分钟一次自适应
+                 * 若假设访问量时均匀分布，第一次自适应期望值是 1\3 的预测值
+                 * 同理第二次自适应期望值是 2\3 的预测值
+                 */
 
-                int amount = accessAmountForCurrentHour.isPresent() ?
+                PCF pcf = metaDataService.getPCFByFileAndByNode(fileName, nodeId)
+                        .orElse(PCF.builder()
+                                .value(adaptiveAlgConfig.PCF_INIT)
+                                .build());
+                double pcfValue = pcf.getValue();
+                double realAmountTillNow = accessAmountForCurrentHour.isPresent() ?
                         accessAmountForCurrentHour.get().getAccessAmount(): 0;
-                // TODO
+                double predictedAmount = fileNodePrediction.getValue();
+                double predictedPercentageAmount = predictedAmount * percentage;
+
+                // TODO 如何处理 RealAmountTillNow
+                double adaptive = pcfValue * predictedAmount + (1 - pcfValue) * (realAmountTillNow / percentage);
+                // 误差过大的情况
+                if (loss(realAmountTillNow / percentage, predictedAmount) > adaptiveAlgConfig.PCF_VALUE_THRESHOLD) {
+                    if (pcf.getNegativeCount() > 0){
+                        pcf.clearCount();
+                    }
+                    pcf.increasePostiveCount();
+                    if (pcf.getPositiveCount() > adaptiveAlgConfig.PCF_COUNT_THRESHOLD){
+                        pcf.decreaseValueByStep(adaptiveAlgConfig.STEP);
+                    }
+                }
+                // 误差较小的情况，若一直预测比较精准，则提高 PCF 值，即预测值的占比
+                else {
+                    if (pcf.getPositiveCount() > 0){
+                        pcf.clearCount();
+                    }
+                    pcf.increaseNegativeCount();
+                    if (pcf.getNegativeCount() > adaptiveAlgConfig.PCF_COUNT_THRESHOLD){
+                        pcf.increaseValueByStep(adaptiveAlgConfig.STEP);
+                    }
+                }
+                // 更新自适应的预测结果
+                fileNodePrediction.setValue(adaptive);
             }
         }
 
+        // 根据自适应结果，计算新的 replica 策略
+        adjustReplicaNumber(predictionResult);
+    }
+
+    private double loss(double real, double expected) {
+        return Math.abs(real - expected);
     }
 
     private void adjustReplicaNumber(Map<String, Map<String, Double>> predictionResult){
