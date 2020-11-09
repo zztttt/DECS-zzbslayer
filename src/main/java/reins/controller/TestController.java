@@ -6,7 +6,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import reins.config.GlobalVar;
-import reins.domain.AccessRecord;
 import reins.service.MetaDataService;
 import reins.service.PopularityService;
 import reins.service.impl.SchedulerServiceImpl;
@@ -28,6 +27,9 @@ public class TestController {
     @Autowired
     GlobalVar globalVar;
 
+    @Autowired
+    TimeUtil timeUtil;
+
     @GetMapping("/nodes")
     @ResponseBody
     public List<String> getNodes(){
@@ -37,20 +39,21 @@ public class TestController {
     @GetMapping("/popularities")
     @ResponseBody
     public double popularities(@RequestParam("fileName")String fileName){
-        return popularityService.calculatePopularityByFileAndByNodeForNextHour(fileName, globalVar.NODE_ID);
+        long timeWindow = timeUtil.getCurrentTimeWindow();
+        return popularityService.calculatePopularityByFileAndByNodeForTimeWindow(fileName, globalVar.NODE_ID, timeWindow);
     }
 
     @GetMapping("/replica")
     @ResponseBody
-    public int replica(){
-        schedulerService.replicaScheduler();
+    public int replica(@RequestParam("timeWindow")long timeWindow){
+        schedulerService._replicaSchedulerWithTimeWindow(timeWindow);
         return 0;
     }
 
     @GetMapping("/adaptive")
     @ResponseBody
-    public int adaptive(@RequestParam("percentage") double percentage){
-        schedulerService._adaptiveScheduler(percentage);
+    public int adaptive(@RequestParam("percentage") double percentage, @RequestParam("timeWindow")long timeWindow){
+        schedulerService._adaptiveSchedulerWithTimeWindow(percentage, timeWindow);
         return 0;
     }
 }

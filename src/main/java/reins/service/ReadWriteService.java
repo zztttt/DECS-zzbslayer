@@ -4,6 +4,8 @@ import reins.domain.FileMeta;
 import reins.domain.Node;
 
 public interface ReadWriteService {
+    String _readWithTimeWindow(String fileName, long timeWindow);
+
     String read(String fileName);
     String write(FileMeta file);
 

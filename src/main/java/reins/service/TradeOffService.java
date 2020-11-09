@@ -7,4 +7,6 @@ public interface TradeOffService {
     Node pickNodeToWrite(FileMeta file);
 
     Node pickNodeToRead(String file);
+
+    Node _pickNodeToReadWithTimeWindow(String fileName, long timeWindow);
 }

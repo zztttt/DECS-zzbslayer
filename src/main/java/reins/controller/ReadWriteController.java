@@ -37,9 +37,9 @@ public class ReadWriteController {
 
     @GetMapping("/read-batch")
     @ResponseBody
-    public int readBatch(@RequestBody List<String> fileNames){
+    public int readBatch(@RequestBody List<String> fileNames, @RequestParam("timeWindow") long timeWindow){
         for (String fileName: fileNames){
-            readWriteService.read(fileName);
+            readWriteService._readWithTimeWindow(fileName, timeWindow);
         }
         return 0;
     }

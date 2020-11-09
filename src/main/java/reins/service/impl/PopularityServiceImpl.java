@@ -1,6 +1,5 @@
 package reins.service.impl;
 
-import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -10,8 +9,6 @@ import reins.service.KeyValueService;
 import reins.service.MetaDataService;
 import reins.service.PopularityService;
 import reins.service.PredictService;
-import reins.utils.KeyUtil;
-import reins.utils.TimeUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,36 +29,36 @@ public class PopularityServiceImpl implements PopularityService {
     MetaDataService metaDataService;
 
     @Override
-    public double calculatePopularityForHour(List<AccessRecord> records, long hour) {
+    public double calculatePopularityForTimeWindow(List<AccessRecord> records, long timeWindow) {
         // 生成这个列表时就是按照顺序一个个append进去的
-        //records.sort(Comparator.comparingLong(AccessRecord::getHour));
+        //records.sort(Comparator.comparingLong(AccessRecord::getTimeWindow));
 //        log.info("Raw records: ");
 //        log.info(JSON.toJSONString(records));
-        List<AccessRecord> dataset = rawRecordsToDataSet(records, hour);
+        List<AccessRecord> dataset = rawRecordsToDataSet(records, timeWindow);
 //        log.info("Dataset: ");
 //        log.info(JSON.toJSONString(dataset));
         return calculatePopularity(dataset);
     }
 
     @Override
-    public double calculatePopularityByFileAndByNodeForHour(String fileName, String nodeId, long hour) {
+    public double calculatePopularityByFileAndByNodeForTimeWindow(String fileName, String nodeId, long timeWindow) {
 //        String key = KeyUtil.generateInternalKey(fileName, nodeId, "popularity");
 //        // buffer in redis
 //        if (keyValueService.exists(key)){
 //            return keyValueService.get(key, Double.class);
 //        }
         log.info("=============Start=============");
-        log.info("Calculating popularity for file {} and nodeId {} at hour {}",
-                fileName, nodeId, hour);
+        log.info("Calculating popularity for file {} and nodeId {} at timeWindow {}",
+                fileName, nodeId, timeWindow);
         List<AccessRecord> records = metaDataService.getAccessRecordsByFileAndByNode(fileName, nodeId)
                 .orElse(new ArrayList<>());
-        double res = calculatePopularityForHour(records, hour);
+        double res = calculatePopularityForTimeWindow(records, timeWindow);
         //keyValueService.put(key, res);
         log.info("==============end==============\n");
         return res;
     }
 
-    private List<AccessRecord> rawRecordsToDataSet(List<AccessRecord> rawRecords, long hour){
+    private List<AccessRecord> rawRecordsToDataSet(List<AccessRecord> rawRecords, long timeWindow){
         // 如果某个小时没有访问量那就会没有记录，因此需要先用访问量 0 填充
         int rawSize = rawRecords.size();
         if (rawSize <= 1)
@@ -75,28 +72,28 @@ public class PopularityServiceImpl implements PopularityService {
         // 形如【第1小时，第3小时】这样的原始记录集，需要在其中把第2小时访问量0的记录填充上
         for (int i = 1; i < rawSize; i++){
             AccessRecord currentRecord = rawRecords.get(i);
-            long currentHour = currentRecord.getHour();
-            long lastHour = lastRecord.getHour();
+            long currentMinute = currentRecord.getTimeWindow();
+            long lastMinute = lastRecord.getTimeWindow();
 
-            fillTimeGap(dataset, lastHour, currentHour);
+            fillTimeGap(dataset, lastMinute, currentMinute);
 
             dataset.add(currentRecord);
             lastRecord = currentRecord;
         }
 
-        long lastHour = dataset.get(dataset.size() - 1).getHour();
-        fillTimeGap(dataset, lastHour, hour);
+        long lastMinute = dataset.get(dataset.size() - 1).getTimeWindow();
+        fillTimeGap(dataset, lastMinute, timeWindow);
         // 填充完毕后才是真正的数据集
         return dataset;
     }
 
-    private void fillTimeGap(List<AccessRecord> tempDataset, long lastHour, long targetHour){
-        long gap = targetHour - lastHour - 1;
+    private void fillTimeGap(List<AccessRecord> tempDataset, long lastWindow, long targetWindow){
+        long gap = lastWindow - targetWindow - 1;
         if (gap > 0){
             for (int j = 1; j <= gap; j++){
                 tempDataset.add(
                         AccessRecord.builder()
-                                .hour(lastHour + j)
+                                .timeWindow(lastWindow + j)
                                 .accessAmount(0)
                                 .build()
                 );

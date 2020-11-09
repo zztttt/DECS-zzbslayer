@@ -40,10 +40,17 @@ public class SchedulerServiceImpl {
 
     @Autowired
     ReadWriteService readWriteService;
-    private List<AccessRecord> records;
+
+    @Autowired
+    TimeUtil timeUtil;
 
     @Scheduled(cron = "${decs.scheduler.lstm}")
     public void replicaScheduler(){
+        long timeWindow = timeUtil.getCurrentTimeWindow();
+        _replicaSchedulerWithTimeWindow(timeWindow);
+    }
+
+    public void _replicaSchedulerWithTimeWindow(long timeWindow){
         // 首先计算出所有 <file, <node, accessAmount>> 预测访问量
         Map<String, Map<String, Double>> predictionResult = new HashMap<>();
 
@@ -59,8 +66,8 @@ public class SchedulerServiceImpl {
             }
             else {
                 for (String nodeId: nodes){
-                    double p = popularityService.calculatePopularityByFileAndByNodeForHour(fileName, nodeId,
-                            TimeUtil.getCurrentAbsoluteHour() + 1);
+                    double p = popularityService.calculatePopularityByFileAndByNodeForTimeWindow(fileName, nodeId,
+                            timeWindow + 1);
                     middleResult.put(nodeId, p);
                 }
             }
@@ -72,8 +79,8 @@ public class SchedulerServiceImpl {
 
         // 这个函数执行完之后一段时间内，可以根据实时情况 自适应调整，不用重新训练
         // 所以要把结果放到redis里，供后续使用
-        metaDataService.setPredictionResultByHour(
-                TimeUtil.getCurrentAbsoluteHour() + 1,
+        metaDataService.setPredictionResultByTimeWindow(
+                timeWindow + 1,
                 predictionResult
         );
 
@@ -83,17 +90,19 @@ public class SchedulerServiceImpl {
 
     @Scheduled(cron = "${decs.scheduler.adaptive1}")
     public void adaptiveScheduler1() {
-        _adaptiveScheduler(1.0/3);
+        long timeWindow = timeUtil.getCurrentTimeWindow();
+        _adaptiveSchedulerWithTimeWindow(1.0/3, timeWindow);
     }
 
     @Scheduled(cron = "${decs.scheduler.adaptive2}")
     public void adaptiveScheduler2() {
-        _adaptiveScheduler(2.0/3);
+        long timeWindow = timeUtil.getCurrentTimeWindow();
+        _adaptiveSchedulerWithTimeWindow(2.0/3, timeWindow);
     }
 
 
-    public void _adaptiveScheduler(double percentage){
-        Optional<Map<String, Map<String, Double>>> optionalPredictionResult = metaDataService.getPredictionResultByHour(TimeUtil.getCurrentAbsoluteHour());
+    public void _adaptiveSchedulerWithTimeWindow(double percentage, long timeWindow){
+        Optional<Map<String, Map<String, Double>>> optionalPredictionResult = metaDataService.getPredictionResultByTimeWindow(timeWindow);
         if (!optionalPredictionResult.isPresent())
             return;
         Map<String, Map<String, Double>> predictionResult = optionalPredictionResult.get();
@@ -108,7 +117,7 @@ public class SchedulerServiceImpl {
                 String nodeId = fileNodePrediction.getKey();
                 List<AccessRecord> records = metaDataService.getAccessRecordsByFileAndByNode(fileName, nodeId)
                         .orElse(new ArrayList<>());
-                Optional<AccessRecord> accessAmountForCurrentHour = records.stream().filter(r -> r.getHour() == TimeUtil.getCurrentAbsoluteHour())
+                Optional<AccessRecord> accessAmountForCurrentMinute = records.stream().filter(r -> r.getTimeWindow() == timeWindow)
                         .findFirst();
                 /**
                  * TODO：目前实现是 hard code 的
@@ -123,15 +132,14 @@ public class SchedulerServiceImpl {
                                 .value(adaptiveAlgConfig.PCF_INIT)
                                 .build());
                 double pcfValue = pcf.getValue();
-                double realAmountTillNow = accessAmountForCurrentHour.isPresent() ?
-                        accessAmountForCurrentHour.get().getAccessAmount(): 0;
+                double realAmountTillNow = accessAmountForCurrentMinute.isPresent() ?
+                        accessAmountForCurrentMinute.get().getAccessAmount(): 0;
                 double predictedAmount = fileNodePrediction.getValue();
-                double predictedPercentageAmount = predictedAmount * percentage;
 
                 // TODO 如何处理 RealAmountTillNow
                 double adaptive = pcfValue * predictedAmount + (1 - pcfValue) * (realAmountTillNow / percentage);
                 // 误差过大的情况
-                if (loss(realAmountTillNow / percentage, predictedAmount) > adaptiveAlgConfig.PCF_VALUE_THRESHOLD) {
+                if (loss(realAmountTillNow, predictedAmount * percentage) > adaptiveAlgConfig.PCF_VALUE_THRESHOLD) {
                     if (pcf.getNegativeCount() > 0){
                         pcf.clearCount();
                     }
@@ -165,6 +173,7 @@ public class SchedulerServiceImpl {
 
     private void adjustReplicaNumber(Map<String, Map<String, Double>> predictionResult){
         List<FileMeta> allFiles = metaDataService.getAllFiles().orElse(new ArrayList<>());
+        System.out.println(JSON.toJSONString(predictionResult));
         for (Map.Entry<String, Map<String, Double>> filePrediction: predictionResult.entrySet()){
             log.info("=============Start=============");
             String fileName = filePrediction.getKey();
@@ -181,12 +190,13 @@ public class SchedulerServiceImpl {
             double pj = Double.MIN_VALUE;; // popularity of replica candidata
             double sum = 0;
 
-            //log.info(JSON.toJSONString(filePrediction.getValue()));
+            System.out.println(fileName);
             for (Map.Entry<String, Double> fileNodePrediction: filePrediction.getValue().entrySet()){
 
 
                 // TODO 似乎这里要做标准化?
                 String nodeId = fileNodePrediction.getKey();
+                System.out.println(nodeId);
                 double p = fileNodePrediction.getValue();
                 sum += p;
 
@@ -212,13 +222,17 @@ public class SchedulerServiceImpl {
             log.info("Files on nodes: {}", JSON.toJSONString(nodesContainsThisFile));
 
             log.info("-------------result-------------");
-            if (replicaCandidate == null){
-                log.info("Skip for null replica candidate");
+            if (replicaCandidate == null ||
+                nodeContainsFileWithMinAccessAmount == null ||
+                nodeContainsFileWithMaxAccessAmount == null ){
+                log.info("Skip for null node");
                 log.info("==============end==============\n");
                 continue;
             }
 
-            Node nodeiMin = metaDataService.getNodeByName(nodeContainsFileWithMinAccessAmount).get();
+            String nodeiMinName = nodeContainsFileWithMinAccessAmount;
+            Node nodeiMin = metaDataService.getNodeByName(nodeiMinName).
+                    orElseThrow(() -> new RuntimeException("Node " + nodeiMinName + " doesn't exist"));
             Node nodej = metaDataService.getNodeByName(replicaCandidate)
                     .orElse(Node.NULL);
 
@@ -248,7 +262,7 @@ public class SchedulerServiceImpl {
                     replicaScore >= decreaseScore){
                 log.info("Scheduler decides to replica file {} from node {} to node {}"
                         , file, nodeContainsFileWithMaxAccessAmount, replicaCandidate);
-                //readWriteService._writeToNode(nodej, file);
+                readWriteService._writeToNode(nodej, file);
             }
             else if (forwardScore >= replicaScore &&
                     forwardScore >= migrateScore &&
@@ -256,7 +270,7 @@ public class SchedulerServiceImpl {
                 // 记录这条转发规则。然后 ReadWrite 那边采用这里的规则
                 log.info("Scheduler decides to forward read request of file {} on node {} to node {}",
                         file, replicaCandidate, nodeContainsFileWithMinAccessAmount);
-                //metaDataService.setForwardRule(fileName, replicaCandidate, nodeContainsFileWithMinAccessAmount);
+                metaDataService.setForwardRule(fileName, replicaCandidate, nodeContainsFileWithMinAccessAmount);
             }
             else if (migrateScore >= replicaScore &&
                     migrateScore >= forwardScore &&
@@ -264,8 +278,8 @@ public class SchedulerServiceImpl {
                 log.info("Scheduler decides to migrate replica file {} from node {} to node {}",
                         file, nodeContainsFileWithMinAccessAmount, replicaCandidate);
 
-                //readWriteService._removeFromNode(nodeiMin, file);
-                //readWriteService._writeToNode(nodej, file);
+                readWriteService._removeFromNode(nodeiMin, file);
+                readWriteService._writeToNode(nodej, file);
 
             }
             else if (decreaseScore >= replicaScore &&
@@ -274,7 +288,7 @@ public class SchedulerServiceImpl {
                 log.info("Scheduler decides to remove replica file {} from node {}",
                         file, nodeContainsFileWithMinAccessAmount);
 
-                //readWriteService._removeFromNode(nodeiMin, file);
+                readWriteService._removeFromNode(nodeiMin, file);
             }
             log.info("==============end==============\n");
         }

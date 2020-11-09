@@ -16,7 +16,7 @@ public class DecsAlgConfig {
     @Value("${decs.ti}")
     public double TI;
 
-    @Value("decs.time-window")
+    @Value("${decs.time-window}")
     public int TIME_WINDOW;
 
     @Value("${decs.alpha}")

@@ -1,8 +1,5 @@
 package reins.service.impl;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reins.config.DecsAlgConfig;
@@ -30,28 +27,14 @@ public class TradeOffServiceImpl implements TradeOffService {
     GlobalVar globalVar;
 
     @Autowired
+    TimeUtil timeUtil;
+
+    @Autowired
     DecsAlgConfig decsAlgConfig;
 
     @Override
     public Node pickNodeToRead(String fileName) {
-        // 从有该文件的节点列表中，选取一个最适合的去读的
-        List<String> nodeNames = metaDataService.getNodesByFile(fileName).get();
-        double max = Double.MIN_VALUE;
-        String targetNode = null;
-        if (nodeNames.size() == 1){
-            targetNode = nodeNames.get(0);
-        }
-        else {
-            for (String nodeId: nodeNames){
-                double readScore = calculateReadScore(nodeId, fileName);
-                if (readScore > max){
-                    max = readScore;
-                    targetNode = nodeId;
-                }
-            }
-        }
-
-        return metaDataService.getNodeByName(targetNode).get();
+        return _pickNodeToReadWithTimeWindow(fileName, timeUtil.getCurrentTimeWindow());
     }
 
     @Override
@@ -82,22 +65,48 @@ public class TradeOffServiceImpl implements TradeOffService {
         return score;
     }
 
-    private double calculateReadScore(String nodeId, String fileName){
-        long now = TimeUtil.getCurrentAbsoluteHour();
-        Optional<Map<String, Map<String, Double>>> optionalResult = metaDataService.getPredictionResultByHour(now);
+    @Override
+    public Node _pickNodeToReadWithTimeWindow(String fileName, long timeWindow) {
+        // 从有该文件的节点列表中，选取一个最适合的去读的
+        List<String> nodeNames = metaDataService.getNodesByFile(fileName).get();
+        double max = Double.MIN_VALUE;
+        String targetNode = null;
+        if (nodeNames.size() == 1){
+            targetNode = nodeNames.get(0);
+        }
+        else {
+            for (String nodeId: nodeNames){
+                double readScore = _calculateReadScoreWithTimeWindow(nodeId, fileName, timeWindow);
+                if (readScore > max){
+                    max = readScore;
+                    targetNode = nodeId;
+                }
+            }
+        }
+
+        return metaDataService.getNodeByName(targetNode).get();
+    }
+
+    private double _calculateReadScoreWithTimeWindow(String nodeId, String fileName, long timeWindow) {
+        Optional<Map<String, Map<String, Double>>> optionalResult = metaDataService.getPredictionResultByTimeWindow(timeWindow);
 
         double p;
         if (optionalResult.isPresent() &&
-            optionalResult.get().containsKey(fileName) &&
-            optionalResult.get().get(fileName).containsKey(nodeId)){
+                optionalResult.get().containsKey(fileName) &&
+                optionalResult.get().get(fileName).containsKey(nodeId)){
             p = optionalResult.get().get(fileName).get(nodeId);
         }
         else
-            p = popularityService.calculatePopularityByFileAndByNodeForHour(fileName, nodeId, now);
+            p = popularityService.calculatePopularityByFileAndByNodeForTimeWindow(fileName, nodeId, timeWindow);
 
         double score = decsAlgConfig.ALPHA * (1 - p)
                 / decsAlgConfig.BETA * (1 + decsAlgConfig.TI / decsAlgConfig.TC);
         return score;
+    }
+
+    private double calculateReadScore(String nodeId, String fileName){
+        long now = timeUtil.getCurrentTimeWindow();
+        return _calculateReadScoreWithTimeWindow(nodeId, fileName, now);
     }
 
 }

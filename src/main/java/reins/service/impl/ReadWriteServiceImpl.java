@@ -12,7 +12,6 @@ import reins.domain.Node;
 import reins.service.MetaDataService;
 import reins.service.ReadWriteService;
 import reins.service.TradeOffService;
-import reins.utils.KeyUtil;
 import reins.utils.TimeUtil;
 
 import java.util.ArrayList;
@@ -32,8 +31,11 @@ public class ReadWriteServiceImpl implements ReadWriteService {
     @Autowired
     MetaDataService metaDataService;
 
+    @Autowired
+    TimeUtil timeUtil;
+
     @Override
-    public String read(String fileName) {
+    public String _readWithTimeWindow(String fileName, long timeWindow) {
         if (fileName.contains("_")){
             throw new RuntimeException("File name contains illegal charactor \"_\"");
         }
@@ -46,14 +48,20 @@ public class ReadWriteServiceImpl implements ReadWriteService {
                         .orElseThrow(() -> new RuntimeException(String.format("Node %s doesn't exist", globalVar.NODE_ID)));
             }
             else
-                targetNode = tradeOffService.pickNodeToRead(fileName);
+                targetNode = tradeOffService._pickNodeToReadWithTimeWindow(fileName, timeWindow);
         }
         else
             targetNode = metaDataService.getNodeByName(globalVar.NODE_ID)
                     .orElseThrow(() -> new RuntimeException(String.format("Node %s doesn't exist", globalVar.NODE_ID)));
 
-        _readFromNode(targetNode, fileName);
+        _readFromNodeWithTimeWindow(targetNode, fileName, timeWindow);
         return targetNode.getId();
+    }
+
+
+    @Override
+    public String read(String fileName) {
+        return _readWithTimeWindow(fileName, timeUtil.getCurrentTimeWindow());
     }
 
     /**
@@ -155,18 +163,9 @@ public class ReadWriteServiceImpl implements ReadWriteService {
         }
     }
 
-    /**
-     * 从当前节点读取位于 node 的某文件
-     * 需要更新当前节点访问该文件的访问记录
-     * @param node
-     * @param fileName
-     * @return
-     */
-    @Override
-    public int _readFromNode(Node node, String fileName){
+    private int _readFromNodeWithTimeWindow(Node node, String fileName, long timeWindow){
         log.info("Reading file {} at node {} from node {}", fileName, node.getId(), globalVar.NODE_ID);
         String nodeId = globalVar.NODE_ID;
-        Long currentHour = TimeUtil.getCurrentAbsoluteHour();
 
         List<AccessRecord> records = metaDataService.getAccessRecordsByFileAndByNode(fileName, nodeId)
                 .orElse(new ArrayList<>());
@@ -174,24 +173,24 @@ public class ReadWriteServiceImpl implements ReadWriteService {
 
         if (recordSize == 0){
             records.add(AccessRecord.builder()
-            .hour(currentHour)
-            .accessAmount(1)
-            .build());
+                    .timeWindow(timeWindow)
+                    .accessAmount(1)
+                    .build());
         }
         else {
             AccessRecord lastRecord = records.get(recordSize - 1);
-            if (lastRecord.getHour() == currentHour){
+            if (lastRecord.getTimeWindow() == timeWindow){
                 lastRecord.increaseAccess();
             }
             else {
                 records.add(AccessRecord.builder()
-                        .hour(currentHour)
+                        .timeWindow(timeWindow)
                         .accessAmount(1)
                         .build());
             }
         }
 
-        // file1_node1 -> [ (hour=1, accessAmount=1), ...]
+        // file1_node1 -> [ (timeWindow=1, accessAmount=1), ...]
         metaDataService.setAccessRecordByFileAndByNode(fileName, nodeId, records);
         // file1_storage -> [ node1, ...]
         if (recordSize == 0){
@@ -202,5 +201,17 @@ public class ReadWriteServiceImpl implements ReadWriteService {
         }
 
         return 0;
+    }
+
+    /**
+     * 从当前节点读取位于 node 的某文件
+     * 需要更新当前节点访问该文件的访问记录
+     * @param node
+     * @param fileName
+     * @return
+     */
+    @Override
+    public int _readFromNode(Node node, String fileName){
+        return _readFromNodeWithTimeWindow(node, fileName, timeUtil.getCurrentTimeWindow());
     }
 }

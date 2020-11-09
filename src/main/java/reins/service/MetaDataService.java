@@ -40,9 +40,9 @@ public interface MetaDataService {
 
     void setForwardRule(String fileName, String srcNode, String dstNode);
 
-    Optional<Map<String, Map<String, Double>>> getPredictionResultByHour(long hour);
+    Optional<Map<String, Map<String, Double>>> getPredictionResultByTimeWindow(long timeWindow);
 
-    void setPredictionResultByHour(long hour, Map<String, Map<String, Double>> predictionResult);
+    void setPredictionResultByTimeWindow(long timeWindow, Map<String, Map<String, Double>> predictionResult);
 
     Optional<PCF> getPCFByFileAndByNode(String fileName, String nodeId);
 

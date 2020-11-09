@@ -8,7 +8,7 @@ import lombok.Data;
 @Builder
 @AllArgsConstructor
 public class AccessRecord {
-    private long hour;
+    private long timeWindow;
     private int accessAmount;
 
     public void increaseAccess(){

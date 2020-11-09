@@ -13,6 +13,7 @@ import reins.domain.*;
 import reins.service.KeyValueService;
 import reins.service.MetaDataService;
 import reins.utils.KeyUtil;
+import reins.utils.TimeUtil;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -146,8 +147,8 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
     }
 
     @Override
-    public Optional<Map<String, Map<String, Double>>> getPredictionResultByHour(long hour) {
-        String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(hour));
+    public Optional<Map<String, Map<String, Double>>> getPredictionResultByTimeWindow(long timeWindow) {
+        String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(timeWindow));
         Map<String, Map<String, Double>> res;
         if (!keyValueService.exists(key))
             res = null;
@@ -158,8 +159,8 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
     }
 
     @Override
-    public void setPredictionResultByHour(long hour, Map<String, Map<String, Double>> predictionResult) {
-        String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(hour));
+    public void setPredictionResultByTimeWindow(long timeWindow, Map<String, Map<String, Double>> predictionResult) {
+        String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(timeWindow));
         keyValueService.put(key, predictionResult
                 , decsAlgConfig.TIME_WINDOW, TimeUnit.MINUTES);
     }
