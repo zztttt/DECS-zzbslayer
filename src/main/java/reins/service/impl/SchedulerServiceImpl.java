@@ -269,8 +269,15 @@ public class SchedulerServiceImpl {
             double riMin = nodeiMin.getDiskMeta().getFreeSpaceRatio();
             double rj = nodej.getDiskMeta().getFreeSpaceRatio();
 
-            double replicaScore = nodesContainsThisFile.size() > decsAlgConfig.REPLICA_THRESHOLD ?
-                    Double.NEGATIVE_INFINITY : calculateReplicaScore(piMax, pj, rj, sum, nodesContainsThisFile.size()); // 如果达到 replica 上限，则不进行备份
+            FileMeta file = allFiles.stream()
+                    .filter(f -> f.getFileName().equals(fileName))
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException(String.format("File doesn't exist %s", fileName)));
+
+            // 如果达到 replica 上限，或者目标节点空间不足，则不进行备份
+            double replicaScore = nodesContainsThisFile.size() > decsAlgConfig.REPLICA_THRESHOLD ||
+                    nodej.getDiskMeta().getAvailable() < file.getSize() ?
+                    Double.NEGATIVE_INFINITY : calculateReplicaScore(piMax, pj, rj, sum, nodesContainsThisFile.size());
             double forwardScore = calculateForwardScore(piMin, pj, sum);
             double migrateScore = calculateMigrateScore(piMin, pj, riMin, rj, sum);
             double decreaseScore = nodeContainsFileWithMinAccessAmount == nodeContainsFileWithMaxAccessAmount ?
@@ -282,10 +289,6 @@ public class SchedulerServiceImpl {
             log.info("Forward score: {}", forwardScore);
             log.info("Migrate score: {}", migrateScore);
             log.info("Decrease score: {}", decreaseScore);
-            FileMeta file = allFiles.stream()
-                    .filter(f -> f.getFileName().equals(fileName))
-                    .findFirst()
-                    .orElseThrow(() -> new RuntimeException(String.format("File doesn't exist %s", fileName)));
 
             if (replicaScore >= forwardScore &&
                     replicaScore >= migrateScore &&
