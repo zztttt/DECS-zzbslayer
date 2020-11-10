@@ -11,7 +11,7 @@ public class AccessRecord {
     private long timeWindow;
     private int accessAmount;
 
-    public void increaseAccess(){
-        this.accessAmount++;
+    public void increaseAccess(int times){
+        this.accessAmount += times;
     }
 }

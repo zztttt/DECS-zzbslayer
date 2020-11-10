@@ -34,8 +34,9 @@ public class ReadWriteServiceImpl implements ReadWriteService {
     @Autowired
     TimeUtil timeUtil;
 
+
     @Override
-    public String _readWithTimeWindow(String fileName, long timeWindow) {
+    public String _readWithTimeWindowAndTimes(String fileName, long timeWindow, int times) {
         if (fileName.contains("_")){
             throw new RuntimeException("File name contains illegal charactor \"_\"");
         }
@@ -54,14 +55,14 @@ public class ReadWriteServiceImpl implements ReadWriteService {
             targetNode = metaDataService.getNodeByName(globalVar.NODE_ID)
                     .orElseThrow(() -> new RuntimeException(String.format("Node %s doesn't exist", globalVar.NODE_ID)));
 
-        _readFromNodeWithTimeWindow(targetNode, fileName, timeWindow);
+        _readFromNodeWithTimeWindowAndTimes(targetNode, fileName, timeWindow, times);
         return targetNode.getId();
     }
 
 
     @Override
     public String read(String fileName) {
-        return _readWithTimeWindow(fileName, timeUtil.getCurrentTimeWindow());
+        return _readWithTimeWindowAndTimes(fileName, timeUtil.getCurrentTimeWindow(), 1);
     }
 
     /**
@@ -163,7 +164,7 @@ public class ReadWriteServiceImpl implements ReadWriteService {
         }
     }
 
-    private int _readFromNodeWithTimeWindow(Node node, String fileName, long timeWindow){
+    private int _readFromNodeWithTimeWindowAndTimes(Node node, String fileName, long timeWindow, int times){
         log.info("Reading file {} at node {} from node {}", fileName, node.getId(), globalVar.NODE_ID);
         String nodeId = globalVar.NODE_ID;
 
@@ -174,18 +175,18 @@ public class ReadWriteServiceImpl implements ReadWriteService {
         if (recordSize == 0){
             records.add(AccessRecord.builder()
                     .timeWindow(timeWindow)
-                    .accessAmount(1)
+                    .accessAmount(times)
                     .build());
         }
         else {
             AccessRecord lastRecord = records.get(recordSize - 1);
             if (lastRecord.getTimeWindow() == timeWindow){
-                lastRecord.increaseAccess();
+                lastRecord.increaseAccess(times);
             }
             else {
                 records.add(AccessRecord.builder()
                         .timeWindow(timeWindow)
-                        .accessAmount(1)
+                        .accessAmount(times)
                         .build());
             }
         }
@@ -212,6 +213,6 @@ public class ReadWriteServiceImpl implements ReadWriteService {
      */
     @Override
     public int _readFromNode(Node node, String fileName){
-        return _readFromNodeWithTimeWindow(node, fileName, timeUtil.getCurrentTimeWindow());
+        return _readFromNodeWithTimeWindowAndTimes(node, fileName, timeUtil.getCurrentTimeWindow(), 1);
     }
 }

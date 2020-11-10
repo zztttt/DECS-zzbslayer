@@ -40,9 +40,7 @@ public class ReadWriteController {
     @ResponseBody
     public int readBatch(@RequestBody List<FileReadDTO> fileReadDTOS, @RequestParam("timeWindow") long timeWindow){
         for (FileReadDTO file: fileReadDTOS){
-            for (int i = 0; i < file.getAmount(); i++){
-                readWriteService._readWithTimeWindow(file.getFileName(), timeWindow);
-            }
+            readWriteService._readWithTimeWindowAndTimes(file.getFileName(), timeWindow, file.getAmount());
         }
         return 0;
     }

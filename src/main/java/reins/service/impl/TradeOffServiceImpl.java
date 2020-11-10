@@ -1,5 +1,6 @@
 package reins.service.impl;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reins.config.DecsAlgConfig;
@@ -13,6 +14,7 @@ import reins.utils.TimeUtil;
 
 import java.util.*;
 
+@Slf4j
 @Service
 public class TradeOffServiceImpl implements TradeOffService {
     @Autowired
@@ -83,6 +85,7 @@ public class TradeOffServiceImpl implements TradeOffService {
 
             for (String nodeId: nodeNames){
                 double readScore = _calculateReadScore(popularities.get(nodeId));
+                log.info("(NodeId, ReadScore) = ({}, {})", nodeId, readScore);
                 if (readScore > max){
                     max = readScore;
                     targetNode = nodeId;
