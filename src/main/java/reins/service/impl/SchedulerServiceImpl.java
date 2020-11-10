@@ -100,6 +100,10 @@ public class SchedulerServiceImpl {
         _adaptiveSchedulerWithTimeWindow(2.0/3, timeWindow);
     }
 
+    public void _adaptiveScheduler(double percentage){
+        _adaptiveSchedulerWithTimeWindow(percentage, timeUtil.getCurrentTimeWindow());
+    }
+
 
     public void _adaptiveSchedulerWithTimeWindow(double percentage, long timeWindow){
         Optional<Map<String, Map<String, Double>>> optionalPredictionResult = metaDataService.getPredictionResultByTimeWindow(timeWindow);
@@ -185,9 +189,9 @@ public class SchedulerServiceImpl {
             String nodeContainsFileWithMinAccessAmount = null; // 原始副本节点 也就是持有数据的，访问量最低的节点
             String replicaCandidate = null; // 未持有数据，访问量最多的节点
 
-            double piMax = Double.MIN_VALUE; // popularity of nodeContainsFileWithMaxAccessAmount
+            double piMax = Double.NEGATIVE_INFINITY; // popularity of nodeContainsFileWithMaxAccessAmount
             double piMin = Double.MAX_VALUE; // popularity
-            double pj = Double.MIN_VALUE;; // popularity of replica candidata
+            double pj = Double.NEGATIVE_INFINITY;; // popularity of replica candidata
             double sum = 0;
 
             System.out.println(fileName);
@@ -196,6 +200,7 @@ public class SchedulerServiceImpl {
 
                 // TODO 似乎这里要做标准化?
                 String nodeId = fileNodePrediction.getKey();
+
                 System.out.println(nodeId);
                 double p = fileNodePrediction.getValue();
                 sum += p;
@@ -225,6 +230,30 @@ public class SchedulerServiceImpl {
             if (replicaCandidate == null ||
                 nodeContainsFileWithMinAccessAmount == null ||
                 nodeContainsFileWithMaxAccessAmount == null ){
+                if (replicaCandidate == null
+                        && nodeContainsFileWithMinAccessAmount != null
+                        && !nodeContainsFileWithMaxAccessAmount.equals(nodeContainsFileWithMinAccessAmount)) {
+                    /**
+                     * 特殊情况：
+                     * 2 个节点持有数据，到最后，只有第一个节点对该数据有访问记录，那么应该删掉一个副本
+                     * 这种情况在原论文的公式中，会导致这份无人访问的副本一直存在
+                     */
+
+                    if (piMin < 5){
+                        String nodeiMinName = nodeContainsFileWithMinAccessAmount;
+                        Node nodeiMin = metaDataService.getNodeByName(nodeiMinName).
+                                orElseThrow(() -> new RuntimeException("Node " + nodeiMinName + " doesn't exist"));
+                        FileMeta file = allFiles.stream()
+                                .filter(f -> f.getFileName().equals(fileName))
+                                .findFirst()
+                                .orElseThrow(() -> new RuntimeException(String.format("File doesn't exist %s", fileName)));
+                        log.info("Scheduler decides to remove replica file {} from node {}",
+                                file, nodeContainsFileWithMinAccessAmount);
+
+                        readWriteService._removeFromNode(nodeiMin, file);
+                    }
+                    continue;
+                }
                 log.info("Skip for null node");
                 log.info("==============end==============\n");
                 continue;
@@ -240,11 +269,12 @@ public class SchedulerServiceImpl {
             double riMin = nodeiMin.getDiskMeta().getFreeSpaceRatio();
             double rj = nodej.getDiskMeta().getFreeSpaceRatio();
 
-            double replicaScore = calculateReplicaScore(piMax, pj, rj, sum, nodesContainsThisFile.size());
+            double replicaScore = nodesContainsThisFile.size() > decsAlgConfig.REPLICA_THRESHOLD ?
+                    Double.NEGATIVE_INFINITY : calculateReplicaScore(piMax, pj, rj, sum, nodesContainsThisFile.size()); // 如果达到 replica 上限，则不进行备份
             double forwardScore = calculateForwardScore(piMin, pj, sum);
             double migrateScore = calculateMigrateScore(piMin, pj, riMin, rj, sum);
             double decreaseScore = nodeContainsFileWithMinAccessAmount == nodeContainsFileWithMaxAccessAmount ?
-                    Double.MIN_VALUE: calculateDecreaseScore(piMin, pj, riMin, sum); // 如果这是唯一一个持有数据节点，则不能删除副本
+                    Double.NEGATIVE_INFINITY: calculateDecreaseScore(piMin, pj, riMin, sum); // 如果这是唯一一个持有数据节点，则不能删除副本
 
             log.info("Node_i max: {}", nodeContainsFileWithMaxAccessAmount);
             log.info("Node_i min: {}", nodeContainsFileWithMinAccessAmount);

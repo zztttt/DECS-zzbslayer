@@ -19,6 +19,9 @@ public class DecsAlgConfig {
     @Value("${decs.time-window}")
     public int TIME_WINDOW;
 
+    @Value("${decs.replica-threshold}")
+    public int REPLICA_THRESHOLD;
+
     @Value("${decs.alpha}")
     public double ALPHA;
 

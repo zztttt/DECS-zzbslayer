@@ -129,6 +129,7 @@ public class PopularityServiceImpl implements PopularityService {
             log.info("Popularity prediction uses LSTM. (OCT, +∞)");
             res = predictService.predict(dataset);
         }
+        log.info("Predicted popularity is {}", res);
         return res;
     }
 }

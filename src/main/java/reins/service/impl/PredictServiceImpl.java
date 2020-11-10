@@ -30,9 +30,6 @@ public class PredictServiceImpl implements PredictService {
         }
     }
 
-    private void datasetToFile(List<AccessRecord> dataset){
-
-    }
 
     private int callScript(String scriptPath) throws InterruptedException, IOException {
         ProcessBuilder pb = new ProcessBuilder()

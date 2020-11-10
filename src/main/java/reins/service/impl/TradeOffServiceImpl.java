@@ -11,9 +11,7 @@ import reins.service.PopularityService;
 import reins.service.TradeOffService;
 import reins.utils.TimeUtil;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 @Service
 public class TradeOffServiceImpl implements TradeOffService {
@@ -41,7 +39,7 @@ public class TradeOffServiceImpl implements TradeOffService {
     public Node pickNodeToWrite(FileMeta file) {
         //return metaDataService.getNodeByName(globalVar.NODE_ID).get();
         List<String> nodeNames = metaDataService.getNodes().get();
-        double max = Double.MIN_VALUE;
+        double max = Double.NEGATIVE_INFINITY;
         String targetNode = null;
         for (String nodeId: nodeNames){
             double writeScore = calculateWriteScore(nodeId);
@@ -69,25 +67,45 @@ public class TradeOffServiceImpl implements TradeOffService {
     public Node _pickNodeToReadWithTimeWindow(String fileName, long timeWindow) {
         // 从有该文件的节点列表中，选取一个最适合的去读的
         List<String> nodeNames = metaDataService.getNodesByFile(fileName).get();
-        double max = Double.MIN_VALUE;
+        double max = Double.NEGATIVE_INFINITY;
         String targetNode = null;
+
+        Map<String, Double> popularities = new HashMap<>();
+
         if (nodeNames.size() == 1){
             targetNode = nodeNames.get(0);
         }
         else {
             for (String nodeId: nodeNames){
-                double readScore = _calculateReadScoreWithTimeWindow(nodeId, fileName, timeWindow);
+                popularities.put(nodeId, _calculateRawPopularityWithTimeWindow(nodeId, fileName, timeWindow));
+            }
+            normalize(popularities);
+
+            for (String nodeId: nodeNames){
+                double readScore = _calculateReadScore(popularities.get(nodeId));
                 if (readScore > max){
                     max = readScore;
                     targetNode = nodeId;
                 }
             }
-        }
 
+        }
         return metaDataService.getNodeByName(targetNode).get();
     }
 
-    private double _calculateReadScoreWithTimeWindow(String nodeId, String fileName, long timeWindow) {
+    private void normalize(Map<String, Double> rawPopularities){
+        double max = rawPopularities.values()
+                .stream()
+                .max(Double::compareTo).get();
+        double min = rawPopularities.values()
+                .stream()
+                .min(Double::compareTo).get();
+        for (String key: rawPopularities.keySet()){
+            rawPopularities.put(key, (rawPopularities.get(key) - min)/(max - min));
+        }
+    }
+
+    private double _calculateRawPopularityWithTimeWindow(String nodeId, String fileName, long timeWindow){
         Optional<Map<String, Map<String, Double>>> optionalResult = metaDataService.getPredictionResultByTimeWindow(timeWindow);
 
         double p;
@@ -98,15 +116,12 @@ public class TradeOffServiceImpl implements TradeOffService {
         }
         else
             p = popularityService.calculatePopularityByFileAndByNodeForTimeWindow(fileName, nodeId, timeWindow);
+        return p;
+    }
 
+    private double _calculateReadScore(double p) {
         double score = decsAlgConfig.ALPHA * (1 - p)
                 / decsAlgConfig.BETA * (1 + decsAlgConfig.TI / decsAlgConfig.TC);
         return score;
     }
-
-    private double calculateReadScore(String nodeId, String fileName){
-        long now = timeUtil.getCurrentTimeWindow();
-        return _calculateReadScoreWithTimeWindow(nodeId, fileName, now);
-    }
-
 }

@@ -163,6 +163,7 @@ public class MetaDataServiceImpl implements MetaDataService, InitializingBean {
         String key = KeyUtil.generateInternalKey("predictionResult", Long.toString(timeWindow));
         keyValueService.put(key, predictionResult
                 , decsAlgConfig.TIME_WINDOW, TimeUnit.MINUTES);
+
     }
 
     @Override
