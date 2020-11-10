@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import reins.domain.FileMeta;
+import reins.domain.dto.FileReadDTO;
 import reins.service.ReadWriteService;
 
 import java.util.List;
@@ -37,9 +38,11 @@ public class ReadWriteController {
 
     @GetMapping("/read-batch")
     @ResponseBody
-    public int readBatch(@RequestBody List<String> fileNames, @RequestParam("timeWindow") long timeWindow){
-        for (String fileName: fileNames){
-            readWriteService._readWithTimeWindow(fileName, timeWindow);
+    public int readBatch(@RequestBody List<FileReadDTO> fileReadDTOS, @RequestParam("timeWindow") long timeWindow){
+        for (FileReadDTO file: fileReadDTOS){
+            for (int i = 0; i < file.getAmount(); i++){
+                readWriteService._readWithTimeWindow(file.getFileName(), timeWindow);
+            }
         }
         return 0;
     }
