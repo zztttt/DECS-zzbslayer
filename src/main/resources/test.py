@@ -1,3 +1,4 @@
 print("Hello World")
 import sys
-sys.exit(200)
+import random
+sys.exit(random.randint(200))
